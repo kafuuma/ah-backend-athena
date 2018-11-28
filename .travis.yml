@@ -1,0 +1,29 @@
+language: python
+
+python:
+  - "3.6"
+
+services: postgresql
+
+env:
+  - DJANGO=2.1.3
+
+install:
+  - pip install -r requirements.txt
+  - pip install coveralls
+  - pip install coverage
+
+before_script:
+  - psql -c "CREATE DATABASE athenatraviscidb;" -U postgres
+  - python manage.py makemigrations
+  - python manage.py migrate
+
+script:
+  - coverage run --source='.' ./manage.py test 
+  - coverage report
+
+after_success:
+  - coveralls
+
+notifications:
+  email: false
