@@ -1,29 +1,72 @@
+import re
 from django.contrib.auth import authenticate
-
-from rest_framework import serializers
-
+from rest_framework import serializers, exceptions
 from .models import User
 
 
 class RegistrationSerializer(serializers.ModelSerializer):
     """Serializers registration requests and creates a new user."""
 
-    # Ensure passwords are at least 8 characters long, no longer than 128
-    # characters, and can not be read by the client.
     password = serializers.CharField(
-        max_length=128,
-        min_length=8,
         write_only=True
     )
+    """
+    Overide default varidation to make sure users receive descriptive
+    error messages
+    """
+    email = serializers.EmailField()
+    username = serializers.CharField()
 
     # The client should not be able to send a token along with a registration
     # request. Making `token` read-only handles that for us.
 
     class Meta:
         model = User
+
         # List all of the fields that could possibly be included in a request
         # or response, including fields specified explicitly above.
+
         fields = ['email', 'username', 'password']
+
+    def validate_password(self, password):
+        """
+        User's password should be between 8 to 128 characters
+        and  should contain atleas one number and a capital letter
+        """
+        if re.match('^.{8,128}$', password) is None:
+            raise serializers.ValidationError(
+                'Passwords must be between 8 to 128 characters'
+            )
+        if re.search('[0-9]|[A-Z]', password) is None:
+            raise serializers.ValidationError(
+                'Password must contain atleast one number and a capital letter'
+            )
+        return password
+
+    def validate_email(self, email):
+        email_db = User.objects.filter(email=email)
+        if email_db.exists():
+            raise serializers.ValidationError(
+                'A user with that email adress already exists'
+            )
+        return email
+
+    def validate_username(self, username):
+        username_db = User.objects.filter(username=username)
+        if username_db.exists():
+            raise serializers.ValidationError(
+                'The user name you entered is already taken, try another one'
+            )
+
+        if re.match('^.{3,10}$', username) is None:
+            raise serializers.ValidationError(
+                'User names must be between 3 and 10 characters'
+            )
+        if re.match('^[A-Za-z0-9_]*$', username) is None:
+            raise serializers.ValidationError(
+                'User names must be characters, letters and underscores only'
+            )
+        return username
 
     def create(self, validated_data):
         # Use the `create_user` method we wrote earlier to create a new user.
@@ -34,7 +77,6 @@ class LoginSerializer(serializers.Serializer):
     email = serializers.CharField(max_length=255)
     username = serializers.CharField(max_length=255, read_only=True)
     password = serializers.CharField(max_length=128, write_only=True)
-
 
     def validate(self, data):
         # The `validate` method is where we make sure that the current
@@ -59,17 +101,28 @@ class LoginSerializer(serializers.Serializer):
                 'A password is required to log in.'
             )
 
+        """
+        Check email address and password at a time so that a user
+        can know exactly what went wrong
+        """
+        email_ = User.objects.filter(email=email)
+        if not email_.exists():
+            raise serializers.ValidationError(
+                'A user with email address "{}" does not exist'.format(
+                    email)
+            )
         # The `authenticate` method is provided by Django and handles checking
         # for a user that matches this email/password combination. Notice how
         # we pass `email` as the `username` value. Remember that, in our User
         # model, we set `USERNAME_FIELD` as `email`.
+
         user = authenticate(username=email, password=password)
 
         # If no user was found matching this email/password combination then
         # `authenticate` will return `None`. Raise an exception in this case.
         if user is None:
             raise serializers.ValidationError(
-                'A user with this email and password was not found.'
+                'You typed a wrong password, please try again'
             )
 
         # Django provides a flag on our `User` model called `is_active`. The
@@ -94,7 +147,7 @@ class LoginSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     """Handles serialization and deserialization of User objects."""
 
-    # Passwords must be at least 8 characters, but no more than 128 
+    # Passwords must be at least 8 characters, but no more than 128
     # characters. These values are the default provided by Django. We could
     # change them, but that would create extra work while introducing no real
     # benefit, so let's just stick with the defaults.
@@ -112,10 +165,9 @@ class UserSerializer(serializers.ModelSerializer):
         # specifying the field with `read_only=True` like we did for password
         # above. The reason we want to use `read_only_fields` here is because
         # we don't need to specify anything else about the field. For the
-        # password field, we needed to specify the `min_length` and 
+        # password field, we needed to specify the `min_length` and
         # `max_length` properties too, but that isn't the case for the token
         # field.
-
 
     def update(self, instance, validated_data):
         """Performs an update on a User."""
